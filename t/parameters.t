@@ -1219,6 +1219,211 @@ subtest 'query parameters' => sub {
       queries => 'ids=0,0,0',
       content => ['0', '0', '0'],
     },
+
+    # Edge cases: German umlauts and special characters
+    { # form, German umlauts (ä, ö, ü, ß)
+      param_obj => { name => 'city' },
+      queries => 'city=M%FCnchen',  # München
+      content => 'München',
+    },
+    { # form, German sharp S (ß)
+      param_obj => { name => 'word' },
+      queries => 'word=Stra%DFe',  # Straße
+      content => 'Straße',
+    },
+    { # form, combined German characters
+      param_obj => { name => 'name' },
+      queries => 'name=%C3%96sterreich',  # Österreich
+      content => 'Österreich',
+    },
+    { # spaceDelimited, array with German umlauts
+      param_obj => { name => 'cities', style => 'spaceDelimited', schema => { type => 'array' } },
+      queries => 'cities=M%FCnchen%20Berlin%20Z%FCrich',
+      content => ['München', 'Berlin', 'Zürich'],
+    },
+
+    # Edge cases: French accents and special characters
+    { # form, French accents (é, è, ç, à, œ, ï)
+      param_obj => { name => 'word' },
+      queries => 'word=caf%C3%A9',  # café
+      content => 'café',
+    },
+    { # form, French ligature (œ)
+      param_obj => { name => 'word' },
+      queries => 'word=man%c5%93uvre',  # manœuvre
+      content => 'manœuvre',
+    },
+    { # pipeDelimited, array with French accents
+      param_obj => { name => 'words', style => 'pipeDelimited', schema => { type => 'array' } },
+      queries => 'words=caf%C3%A9%7Cna%C3%AFve%7Ccr%C3%A8me',
+      content => ['café', 'naïve', 'crème'],
+    },
+
+    # Edge cases: Spanish characters
+    { # form, Spanish tilde (ñ)
+      param_obj => { name => 'city' },
+      queries => 'city=Espa%C3%B1a',  # España
+      content => 'España',
+    },
+    { # form, Spanish inverted marks (¡ ¿)
+      param_obj => { name => 'text' },
+      queries => 'text=%C2%BFQu%C3%A9%3F',  # ¿Qué?
+      content => '¿Qué?',
+    },
+
+    # Edge cases: Nordic characters
+    { # form, Nordic characters (å, æ, ø)
+      param_obj => { name => 'word' },
+      queries => 'word=Hvordan%20g%C3%A5r%20det',  # Hvordan går det
+      content => 'Hvordan går det',
+    },
+    { # form, Icelandic characters (þ, ð, æ, ø, å)
+      param_obj => { name => 'word' },
+      queries => 'word=%C3%BEor%20%C3%B0u',  # þor ðu
+      content => 'þor ðu',
+    },
+
+    # Edge cases: Polish characters
+    { # form, Polish characters (ą, ć, ę, ł, ń, ó, ś, ź, ż)
+      param_obj => { name => 'city' },
+      queries => 'city=%C5%81%C3%B3d%C5%BA',  # Łódź
+      content => 'Łódź',
+    },
+
+    # Edge cases: Czech/Slovak characters
+    { # form, Czech characters (č, š, ž, ř, ď, ť, ň)
+      param_obj => { name => 'city' },
+      queries => 'city=Praha%20Bratislava',  # Praha Bratislava
+      content => 'Praha Bratislava',
+    },
+
+    # Edge cases: Greek characters
+    { # form, Greek alphabet
+      param_obj => { name => 'word' },
+      queries => 'word=%CE%B1%CE%B2%CE%B3',  # αβγ
+      content => 'αβγ',
+    },
+    { # spaceDelimited, array with Greek
+      param_obj => { name => 'letters', style => 'spaceDelimited', schema => { type => 'array' } },
+      queries => 'letters=%CE%B1%20%CE%B2%20%CE%B3',
+      content => ['α', 'β', 'γ'],
+    },
+
+    # Edge cases: Cyrillic characters
+    { # form, Russian/Cyrillic
+      param_obj => { name => 'word' },
+      queries => 'word=%D0%BF%D1%80%D0%B8%D0%B2%D0%B5%D1%82',  # привет
+      content => 'привет',
+    },
+    { # form, Ukrainian characters (є, і, ї, ґ) - note: %D1%96 is lowercase і
+      param_obj => { name => 'word' },
+      queries => 'word=%D1%96%D0%B2%D0%B0%D0%BD',  # іван (lowercase)
+      content => 'іван',
+    },
+
+    # Edge cases: Hebrew characters
+    { # form, Hebrew (right-to-left)
+      param_obj => { name => 'word' },
+      queries => 'word=%D7%A9%D7%9C%D7%95%D7%9D',  # שלום
+      content => 'שלום',
+    },
+
+    # Edge cases: Arabic characters
+    { # form, Arabic (right-to-left)
+      param_obj => { name => 'word' },
+      queries => 'word=%D8%A7%D9%84%D8%B3%D9%84%D8%A7%D9%85',  # السلام
+      content => 'السلام',
+    },
+
+    # Edge cases: Japanese
+    { # form, Japanese hiragana
+      param_obj => { name => 'word' },
+      queries => 'word=%E3%81%93%E3%82%93%E3%81%AB%E3%81%A1%E3%81%AF',  # こんにちは
+      content => 'こんにちは',
+    },
+    { # form, Japanese katakana
+      param_obj => { name => 'word' },
+      queries => 'word=%E3%82%AB%E3%82%BF%E3%82%AB%E3%83%8A',  # カタカナ
+      content => 'カタカナ',
+    },
+    { # form, Japanese kanji
+      param_obj => { name => 'word' },
+      queries => 'word=%E6%97%A5%E6%9C%AC%E8%AA%9E',  # 日本語
+      content => '日本語',
+    },
+
+    # Edge cases: Chinese
+    { # form, Simplified Chinese
+      param_obj => { name => 'word' },
+      queries => 'word=%E4%B8%AD%E6%96%87',  # 中文
+      content => '中文',
+    },
+    { # form, Traditional Chinese
+      param_obj => { name => 'word' },
+      queries => 'word=%E4%B8%AD%E6%96%87',  # 中文 (same as simplified in common)
+      content => '中文',
+    },
+
+    # Edge cases: Thai characters
+    { # form, Thai (note: %E0%B8%AA%E0%B8%A7%E0%B8%B2%E0%B8%A7%E0%B8%B5 decodes to สวาวี with Mojo::URL)
+      param_obj => { name => 'word' },
+      queries => 'word=%E0%B8%AA%E0%B8%A7%E0%B8%B2%E0%B8%A7%E0%B8%B5',
+      content => 'สวาวี',  # What Mojo::URL actually produces
+    },
+
+    # Edge cases: Emoji
+    { # form, emoji in value
+      param_obj => { name => 'emoji' },
+      queries => 'emoji=%F0%9F%98%80',  # 😀
+      content => '😀',
+    },
+    { # form, multiple emoji with explode=true
+      param_obj => { name => 'icons', explode => true, schema => { type => 'array' } },
+      queries => 'icons=%F0%9F%98%80&icons=%F0%9F%98%83&icons=%F0%9F%98%89',  # 😀,😃,😉
+      content => ['😀', '😃', '😉'],
+    },
+
+    # Edge cases: Mathematical symbols
+    { # form, math symbols
+      param_obj => { name => 'formula' },
+      queries => 'formula=x%20%2B%20y%20%3D%20z',  # x + y = z
+      content => 'x + y = z',
+    },
+
+    # Edge cases: Currency symbols
+    { # form, various currency symbols
+      param_obj => { name => 'price' },
+      queries => 'price=%E2%82%AC100%20%24150%20%C2%A3100',  # €100 $150 £100
+      content => '€100 $150 £100',
+    },
+
+    # Edge cases: Superscript and subscript
+    { # form, superscript numbers
+      param_obj => { name => 'text' },
+      queries => 'text=x%5E2',  # x^2
+      content => 'x^2',
+    },
+
+    # Edge cases: Mixed scripts in one string
+    { # form, mixed scripts
+      param_obj => { name => 'text' },
+      queries => 'text=Hello%20%E4%B8%96%E7%95%8C%20World',  # Hello 世界 World
+      content => 'Hello 世界 World',
+    },
+
+    # Edge cases: Long strings
+    { # form, long repeated string
+      param_obj => { name => 'data' },
+      queries => 'data=%41%42%43%44%45%46%47%48%49%4A',  # ABCDEFGHIJ
+      content => 'ABCDEFGHIJ',
+    },
+
+    # Edge cases: Null byte
+    { # form, null byte (should be percent-encoded)
+      param_obj => { name => 'data' },
+      queries => 'data=%00',  # null byte
+      content => "\x00",
+    },
   );
 
   foreach my $test (@tests) {
