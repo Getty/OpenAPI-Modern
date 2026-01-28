@@ -1131,6 +1131,94 @@ subtest 'query parameters' => sub {
       queries => 'color=%E6%97%A5%E6%9C%AC%E8%AA%9E',
       content => ['日本語'],
     },
+
+    # Edge cases: Plus sign (should NOT be decoded to space in OpenAPI)
+    { # form, string with plus sign
+      param_obj => { name => 'color' },
+      queries => 'color=a%2Bb',  # a+b
+      content => 'a+b',
+    },
+    { # spaceDelimited, array with plus sign
+      param_obj => { name => 'color', style => 'spaceDelimited', schema => { type => 'array' } },
+      queries => 'color=a%2Bb%20c',  # %20 is space, %2B is plus
+      content => ['a+b', 'c'],
+    },
+
+    # Edge cases: Percent sign (must be encoded)
+    { # form, string with encoded percent
+      param_obj => { name => 'color' },
+      queries => 'color=100%25',  # 100%
+      content => '100%',
+    },
+    { # form, string with double-encoded percent
+      param_obj => { name => 'color' },
+      queries => 'color=100%2525',  # 100%25 (literally)
+      content => '100%25',
+    },
+
+    # Edge cases: Equals sign in value
+    { # form, string with equals in value
+      param_obj => { name => 'color' },
+      queries => 'color=x%3Dy',  # x=y
+      content => 'x=y',
+    },
+    { # pipeDelimited, array with equals in value
+      param_obj => { name => 'color', style => 'pipeDelimited', schema => { type => 'array' } },
+      queries => 'color=x%3Dy%7Cz',  # x=y|z
+      content => ['x=y', 'z'],
+    },
+
+    # Edge cases: Ampersand in value
+    { # form, string with ampersand in value
+      param_obj => { name => 'color' },
+      queries => 'color=a%26b',  # a&b
+      content => 'a&b',
+    },
+    { # pipeDelimited, array with ampersand in value
+      param_obj => { name => 'color', style => 'pipeDelimited', schema => { type => 'array' } },
+      queries => 'color=a%26b%7Cc',  # a&b|c
+      content => ['a&b', 'c'],
+    },
+
+    # Edge cases: Hash/pound sign in value
+    { # form, string with hash in value
+      param_obj => { name => 'color' },
+      queries => 'color=a%23b',  # a#b
+      content => 'a#b',
+    },
+
+    # Edge cases: Question mark in value
+    { # form, string with question mark in value
+      param_obj => { name => 'color' },
+      queries => 'color=a%3Fb',  # a?b
+      content => 'a?b',
+    },
+
+    # Edge cases: DeepObject with special characters in nested values
+    { # deepObject, nested value with special chars
+      param_obj => { name => 'user', style => 'deepObject', schema => { type => 'object' } },
+      queries => 'user[name]=John%20Doe&user[email]=john%40example.com',
+      content => { user => { name => 'John Doe', email => 'john@example.com' } },
+    },
+
+    # Edge cases: deepObject with empty nested value
+    { # deepObject, empty nested value
+      param_obj => { name => 'color', style => 'deepObject', schema => { type => 'object' } },
+      queries => 'color[R]=&color[G]=200&color[B]=',
+      content => { color => { R => '', G => '200', B => '' } },
+    },
+
+    # Edge cases: Array with zero as value
+    { # form, array with zero
+      param_obj => { name => 'ids', explode => false, schema => { type => 'array' } },
+      queries => 'ids=0,1,2',
+      content => ['0', '1', '2'],
+    },
+    { # form, array with only zeros
+      param_obj => { name => 'ids', explode => false, schema => { type => 'array' } },
+      queries => 'ids=0,0,0',
+      content => ['0', '0', '0'],
+    },
   );
 
   foreach my $test (@tests) {
