@@ -1008,6 +1008,129 @@ subtest 'query parameters' => sub {
       queries => 'color[R]=100&color[G]=200&color[B]=150',
       content => { color => { R => '100', G => '200', B => '150' } },
     },
+
+    # Edge cases: single element arrays
+    { # form, array, single element
+      param_obj => { name => 'color', explode => false, schema => { type => 'array' } },
+      queries => 'color=red',
+      content => ['red'],
+    },
+    { # spaceDelimited, array, single element
+      param_obj => { name => 'color', style => 'spaceDelimited', schema => { type => 'array' } },
+      queries => 'color=red',
+      content => ['red'],
+    },
+    { # pipeDelimited, array, single element
+      param_obj => { name => 'color', style => 'pipeDelimited', schema => { type => 'array' } },
+      queries => 'color=red',
+      content => ['red'],
+    },
+
+    # Edge cases: single key-value pair objects
+    { # form, object, single pair, explode=false
+      param_obj => { name => 'color', explode => false, schema => { type => 'object' } },
+      queries => 'color=R,100',
+      content => { R => '100' },
+    },
+    { # form, object, single pair, explode=true
+      # Note: with only one parameter name, the entire value is assigned to that name
+      param_obj => { name => 'color', explode => true, schema => { type => 'object' } },
+      queries => 'color=R,100',
+      content => { color => 'R,100' },
+    },
+    { # spaceDelimited, object, single pair
+      param_obj => { name => 'color', style => 'spaceDelimited', schema => { type => 'object' } },
+      queries => 'color=R 100',
+      content => { R => '100' },
+    },
+    { # pipeDelimited, object, single pair
+      param_obj => { name => 'color', style => 'pipeDelimited', schema => { type => 'object' } },
+      queries => 'color=R|100',
+      content => { R => '100' },
+    },
+
+    # Edge cases: empty string elements in arrays
+    { # form, array, with empty element, explode=false
+      param_obj => { name => 'color', explode => false, schema => { type => 'array' } },
+      queries => 'color=a,,b',
+      content => ['a', '', 'b'],
+    },
+    { # form, array, with empty element, explode=true
+      param_obj => { name => 'color', explode => true, schema => { type => 'array' } },
+      queries => 'color=a&color=&color=b',
+      content => ['a', '', 'b'],
+    },
+    { # spaceDelimited, array, with empty element
+      param_obj => { name => 'color', style => 'spaceDelimited', schema => { type => 'array' } },
+      queries => 'color=a  b',
+      content => ['a', '', 'b'],  # multiple spaces create empty element between
+    },
+    { # pipeDelimited, array, with empty element
+      param_obj => { name => 'color', style => 'pipeDelimited', schema => { type => 'array' } },
+      queries => 'color=a||b',
+      content => ['a', '', 'b'],
+    },
+
+    # Edge cases: empty string keys in objects
+    { # form, object, empty key, explode=false
+      param_obj => { name => 'color', explode => false, schema => { type => 'object' } },
+      queries => 'color=,value',
+      content => { '' => 'value' },
+    },
+    { # spaceDelimited, object, empty key (odd number of elements causes error)
+      param_obj => { name => 'color', style => 'spaceDelimited', schema => { type => 'object' } },
+      queries => 'color=  value',
+      content => undef,  # parsing fails, no content extracted
+      todo => 'spaceDelimited object with odd elements should error',
+    },
+    { # pipeDelimited, object, empty key
+      param_obj => { name => 'color', style => 'pipeDelimited', schema => { type => 'object' } },
+      queries => 'color=|value',
+      content => { '' => 'value' },
+    },
+
+    # Edge cases: deepObject with numeric keys
+    { # deepObject, object, numeric key
+      param_obj => { name => 'color', style => 'deepObject', schema => { type => 'object' } },
+      queries => 'color[0]=red&color[1]=blue',
+      content => { color => { 0 => 'red', 1 => 'blue' } },
+    },
+
+    # Edge cases: form, array, all empty strings
+    { # form, array, all empty, explode=false
+      param_obj => { name => 'color', explode => false, schema => { type => 'array' } },
+      queries => 'color=,,',
+      content => ['', '', ''],
+    },
+    { # form, array, all empty, explode=true
+      param_obj => { name => 'color', explode => true, schema => { type => 'array' } },
+      queries => 'color=&color=&color=',
+      content => ['', '', ''],
+    },
+
+    # Edge cases: query string with extra separators
+    { # form, with leading/trailing separators
+      param_obj => { name => 'color' },
+      queries => '&color=blue&',
+      content => 'blue',
+    },
+    { # form, array, with extra separators, explode=true
+      param_obj => { name => 'color', explode => true, schema => { type => 'array' } },
+      queries => '&color=red&&color=blue&',
+      content => [qw(red blue)],
+    },
+
+    # Edge cases: Unicode in values
+    { # form, string with unicode
+      param_obj => { name => 'color' },
+      queries => 'color=%E6%97%A5%E6%9C%AC%E8%AA%9E',  # 日本語 in UTF-8 percent-encoded
+      content => '日本語',
+    },
+    { # spaceDelimited, array with unicode
+      param_obj => { name => 'color', style => 'spaceDelimited', schema => { type => 'array' } },
+      queries => 'color=%E6%97%A5%E6%9C%AC%E8%AA%9E',
+      content => ['日本語'],
+    },
   );
 
   foreach my $test (@tests) {
