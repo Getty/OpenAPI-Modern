@@ -978,19 +978,36 @@ subtest 'query parameters' => sub {
       todo => 'style=form, explode=true, parse as object',
     },
 
-    # TODO:
-    # spaceDelimited, string - not supported
-    # spaceDelimited, array/object, true - not supported
-    # spaceDelimited, array, false
-    # spaceDelimited, object, false
-    # pipeDelimited, string - not supported
-    # pipeDelimited, array/object, true - not supported
-    # pipeDelimited, array, false
-    # pipeDelimited, object, false
-    # deepObject, string - not supported
-    # deepObject, array - not supported
-    # deepObject, object, false - not supported
-    # deepObject, object, true
+    # spaceDelimited style
+    { # spaceDelimited, array
+      param_obj => { name => 'color', style => 'spaceDelimited', schema => { type => 'array' } },
+      queries => 'color=blue black brown',
+      content => [ qw(blue black brown) ],
+    },
+    { # spaceDelimited, object
+      param_obj => { name => 'color', style => 'spaceDelimited', schema => { type => 'object' } },
+      queries => 'color=R 100 G 200 B 150',
+      content => { R => '100', G => '200', B => '150' },
+    },
+
+    # pipeDelimited style
+    { # pipeDelimited, array
+      param_obj => { name => 'color', style => 'pipeDelimited', schema => { type => 'array' } },
+      queries => 'color=blue|black|brown',
+      content => [ qw(blue black brown) ],
+    },
+    { # pipeDelimited, object
+      param_obj => { name => 'color', style => 'pipeDelimited', schema => { type => 'object' } },
+      queries => 'color=R|100|G|200|B|150',
+      content => { R => '100', G => '200', B => '150' },
+    },
+
+    # deepObject style
+    { # deepObject, object
+      param_obj => { name => 'color', style => 'deepObject', schema => { type => 'object' } },
+      queries => 'color[R]=100&color[G]=200&color[B]=150',
+      content => { color => { R => '100', G => '200', B => '150' } },
+    },
   );
 
   foreach my $test (@tests) {

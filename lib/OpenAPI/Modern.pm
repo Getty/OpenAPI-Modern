@@ -802,17 +802,41 @@ sub _validate_path_parameter ($self, $state, $param_obj, $path_captures) {
 }
 
 sub _validate_query_parameter ($self, $state, $param_obj, $uri) {
-  # parse the query parameters out of uri
-  my $query_params = +{ $uri->query->pairs->@* };
+  # v3.2.0 §4.12, "Parameter Object -> allowEmptyValue": "If `true`, clients MAY pass a zero-length
+  # string value in place of parameters that would otherwise be omitted entirely, which the server
+  # SHOULD interpret as the parameter being unused."
 
-  if (not exists $query_params->{$param_obj->{name}}) {
-    return E({ %$state, keyword => 'required' }, 'missing query parameter: %s', $param_obj->{name})
+  my $name = $param_obj->{name};
+  my $style = $param_obj->{style} // 'form';
+  my $explode = $param_obj->{explode} // ($style eq 'form' ? true : false);
+
+  # parse query string to handle duplicate keys for arrays
+  my %query_params = $uri->query->pairs->@*;
+  my @param_values = $uri->query->pairs->@*;
+  my @name_values;
+  while (my ($key, $value) = splice @param_values, 0, 2) {
+    push @name_values, $value if $key eq $name;
+  }
+
+  # For deepObject, check for nested keys like color[R] instead of just color
+  my $has_deep_object_keys = 0;
+  if ($style eq 'deepObject') {
+    foreach my $key (keys %query_params) {
+      if ($key =~ /^\Q${name}\E\[/) {
+        $has_deep_object_keys = 1;
+        last;
+      }
+    }
+  }
+
+  if (not @name_values and not $has_deep_object_keys) {
+    return E({ %$state, keyword => 'required' }, 'missing query parameter: %s', $name)
       if $param_obj->{required};
     return 1;
   }
 
-  $state->{data_path} = jsonp($state->{data_path}, $param_obj->{name});
-  my $data = $query_params->{$param_obj->{name}};
+  $state->{data_path} = jsonp($state->{data_path}, $name);
+  my $data = @name_values ? $name_values[0] : undef;  # first value for non-array types
 
   return $self->_validate_parameter_content({ %$state, depth => $state->{depth}+1 }, $param_obj, \$data)
     if exists $param_obj->{content};
@@ -822,26 +846,72 @@ sub _validate_query_parameter ($self, $state, $param_obj, $uri) {
   # SHOULD interpret as the parameter being unused."
   return if $param_obj->{allowEmptyValue}
     and ($param_obj->{style}//'form') eq 'form'
-    and not length($data);
+    and not length($data // '');
 
   # TODO: check 'allowReserved'; difficult to do without access to the raw request string
+  return E({ %$state, keyword => 'allowReserved' }, 'allowReserved: true is not yet supported')
+    if $param_obj->{allowReserved};
 
-  # TODO: support different styles.
-  # for now, we only support style=form and do not allow for multiple values per
-  # property (i.e. 'explode' is not checked at all.)
-  # (other possible style values: spaceDelimited, pipeDelimited, deepObject)
+  if ($style eq 'form') {
+    return $self->_validate_query_form_style($state, $param_obj, $data, \@name_values, \%query_params, $uri, $explode);
+  }
+  elsif ($style eq 'spaceDelimited') {
+    return $self->_validate_query_space_delimited_style($state, $param_obj, $data);
+  }
+  elsif ($style eq 'pipeDelimited') {
+    return $self->_validate_query_pipe_delimited_style($state, $param_obj, $data);
+  }
+  elsif ($style eq 'deepObject') {
+    return $self->_validate_query_deep_object_style($state, $param_obj, $uri);
+  }
+  else {
+    return E({ %$state, keyword => 'style' },
+        'unsupported style "%s" for query parameters (expected form, spaceDelimited, pipeDelimited, or deepObject)', $style);
+  }
+}
 
-  return E({ %$state, keyword => 'style' }, 'only style: form is supported in query parameters')
-    if ($param_obj->{style}//'form') ne 'form';
-
+sub _validate_query_form_style ($self, $state, $param_obj, $data, $name_values, $all_params, $uri, $explode) {
+  my $name = $param_obj->{name};
   my @types = $self->_type_in_schema($param_obj->{schema}, { %$state, keyword_path => $state->{keyword_path}.'/schema' });
 
   if (any { $_ eq 'string' || $_ eq 'number' || $_ eq 'boolean' || $_ eq 'null' } @types) {
+    # primitive types: always use the first value
     return E($state, 'cannot deserialize to %s type%s', 'requested', @types > 1 ? 's' : '')
       if not coerce_primitive(\$data, \@types);
   }
-  elsif (any { $_ eq 'array' || $_ eq 'object' } @types) {
-    return E($state, 'deserializing query parameters to arrays or objects is not currently supported');
+  elsif (any { $_ eq 'array' } @types) {
+    if ($explode) {
+      # style=form, explode=true, array: color=blue&color=black&color=brown -> ['blue', 'black', 'brown']
+      $data = $name_values;
+      $self->_coerce_array_elements($data, $param_obj->{schema}, { %$state, keyword_path => $state->{keyword_path}.'/schema' });
+    }
+    else {
+      # style=form, explode=false, array: color=blue,black,brown -> ['blue', 'black', 'brown']
+      $data = [ split /,/, $data, -1 ];
+      $self->_coerce_array_elements($data, $param_obj->{schema}, { %$state, keyword_path => $state->{keyword_path}.'/schema' });
+    }
+  }
+  elsif (any { $_ eq 'object' } @types) {
+    if ($explode) {
+      # style=form, explode=true, object: color=blue&R=100&G=200&B=150 -> { color => 'blue', R => '100', G => '200', B => '150' }
+      my @keys_and_values;
+      foreach my $key (keys $all_params->%*) {
+        push @keys_and_values, $key, $all_params->{$key};
+      }
+      $data = +{ @keys_and_values };
+      $self->_coerce_object_elements($data, $param_obj->{schema}, { %$state, keyword_path => $state->{keyword_path}.'/schema' });
+    }
+    else {
+      # style=form, explode=false, object: color=R,100,G,200,B,150 -> { R => '100', G => '200', B => '150' }
+      my @values = split /,/, $data, -1;
+      if (@values % 2 == 0) {
+        $data = +{ @values };
+        $self->_coerce_object_elements($data, $param_obj->{schema}, { %$state, keyword_path => $state->{keyword_path}.'/schema' });
+      }
+      else {
+        return E($state, 'data does not match indicated style "form" for object (invalid key-value pairs)');
+      }
+    }
   }
   else {
     return E($state, 'cannot deserialize to %s type%s', !@types ? 'any' : 'requested', @types > 1 ? 's' : '');
@@ -849,6 +919,101 @@ sub _validate_query_parameter ($self, $state, $param_obj, $uri) {
 
   $self->_evaluate_subschema(\$data, $param_obj->{schema},
     { %$state, keyword_path => $state->{keyword_path}.'/schema', depth => $state->{depth}+1 });
+}
+
+sub _validate_query_space_delimited_style ($self, $state, $param_obj, $data) {
+  my $name = $param_obj->{name};
+  my @types = $self->_type_in_schema($param_obj->{schema}, { %$state, keyword_path => $state->{keyword_path}.'/schema' });
+
+  if (any { $_ eq 'array' } @types) {
+    # spaceDelimited, array: color=blue black brown -> ['blue', 'black', 'brown']
+    $data = [ split / /, $data, -1 ];
+    $self->_coerce_array_elements($data, $param_obj->{schema}, { %$state, keyword_path => $state->{keyword_path}.'/schema' });
+  }
+  elsif (any { $_ eq 'object' } @types) {
+    # spaceDelimited, object: color=R 100 G 200 B 150 -> { R => '100', G => '200', B => '150' }
+    my @values = split / /, $data, -1;
+    if (@values % 2 == 0) {
+      $data = +{ @values };
+      $self->_coerce_object_elements($data, $param_obj->{schema}, { %$state, keyword_path => $state->{keyword_path}.'/schema' });
+    }
+    else {
+      return E($state, 'data does not match indicated style "spaceDelimited" for object (invalid key-value pairs)');
+    }
+  }
+  elsif (any { $_ eq 'string' || $_ eq 'number' || $_ eq 'boolean' || $_ eq 'null' } @types) {
+    return E($state, 'cannot deserialize to %s type%s', 'requested', @types > 1 ? 's' : '')
+      if not coerce_primitive(\$data, \@types);
+  }
+  else {
+    return E($state, 'cannot deserialize to %s type%s', !@types ? 'any' : 'requested', @types > 1 ? 's' : '');
+  }
+
+  $self->_evaluate_subschema(\$data, $param_obj->{schema},
+    { %$state, keyword_path => $state->{keyword_path}.'/schema', depth => $state->{depth}+1 });
+}
+
+sub _validate_query_pipe_delimited_style ($self, $state, $param_obj, $data) {
+  my $name = $param_obj->{name};
+  my @types = $self->_type_in_schema($param_obj->{schema}, { %$state, keyword_path => $state->{keyword_path}.'/schema' });
+
+  if (any { $_ eq 'array' } @types) {
+    # pipeDelimited, array: color=blue|black|brown -> ['blue', 'black', 'brown']
+    $data = [ split /\|/, $data, -1 ];
+    $self->_coerce_array_elements($data, $param_obj->{schema}, { %$state, keyword_path => $state->{keyword_path}.'/schema' });
+  }
+  elsif (any { $_ eq 'object' } @types) {
+    # pipeDelimited, object: color=R|100|G|200|B|150 -> { R => '100', G => '200', B => '150' }
+    my @values = split /\|/, $data, -1;
+    if (@values % 2 == 0) {
+      $data = +{ @values };
+      $self->_coerce_object_elements($data, $param_obj->{schema}, { %$state, keyword_path => $state->{keyword_path}.'/schema' });
+    }
+    else {
+      return E($state, 'data does not match indicated style "pipeDelimited" for object (invalid key-value pairs)');
+    }
+  }
+  elsif (any { $_ eq 'string' || $_ eq 'number' || $_ eq 'boolean' || $_ eq 'null' } @types) {
+    return E($state, 'cannot deserialize to %s type%s', 'requested', @types > 1 ? 's' : '')
+      if not coerce_primitive(\$data, \@types);
+  }
+  else {
+    return E($state, 'cannot deserialize to %s type%s', !@types ? 'any' : 'requested', @types > 1 ? 's' : '');
+  }
+
+  $self->_evaluate_subschema(\$data, $param_obj->{schema},
+    { %$state, keyword_path => $state->{keyword_path}.'/schema', depth => $state->{depth}+1 });
+}
+
+sub _validate_query_deep_object_style ($self, $state, $param_obj, $uri) {
+  my $name = $param_obj->{name};
+  my @types = $self->_type_in_schema($param_obj->{schema}, { %$state, keyword_path => $state->{keyword_path}.'/schema' });
+
+  # deepObject only supports objects
+  if (not any { $_ eq 'object' } @types) {
+    return E($state, 'style "deepObject" is only supported for object types');
+  }
+
+  # deepObject, object: color[R]=100&color[G]=200&color[B]=150 -> { color => { R => '100', G => '200', B => '150' } }
+  my %all_params = $uri->query->pairs->@*;
+  my %nested;
+
+  foreach my $key (keys %all_params) {
+    if ($key =~ /^\Q${name}\E\[([^]]+)\]$/) {
+      my $nested_key = $1;
+      $nested{$nested_key} = $all_params{$key};
+    }
+  }
+
+  if (keys %nested) {
+    my $data = +{ $name => \%nested };
+    $self->_coerce_object_elements($data, $param_obj->{schema}, { %$state, keyword_path => $state->{keyword_path}.'/schema' });
+    return $self->_evaluate_subschema(\$data, $param_obj->{schema},
+      { %$state, keyword_path => $state->{keyword_path}.'/schema', depth => $state->{depth}+1 });
+  }
+  else {
+    return E($state, 'data does not match indicated style "deepObject" (no nested parameters found)');
+  }
 }
 
 # validates a header, from either the request or the response
